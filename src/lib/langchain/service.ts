@@ -365,11 +365,45 @@ Tell me anything you're thinking — or just say "start with ideas" and I'll tak
    */
   private async handlePerformanceTaskCompleteStep(): Promise<string> {
     try {
-      // We'll just combine the requirements and rubric info directly
+      // Get the necessary data from memory
+      const selectedTaskIdea = this.memory.get<any>("selectedTaskIdea") || {};
       const requirements = this.memory.get<string>("requirements") || "";
       const rubricInfo = this.memory.get<string>("rubricInfo") || "";
       
-      // Format a complete summary with section headers
+      // Create a structured performance task object
+      const performanceTask = {
+        title: selectedTaskIdea.title || "Performance Task",
+        subtitle: selectedTaskIdea.description || "",
+        description: selectedTaskIdea.description || "",
+        purpose: selectedTaskIdea.purpose || "",
+        requirements: requirements,
+        successCriteria: requirements, // Use requirements for success criteria if not available separately
+        suggestedFocusTopic: "",
+        rubricTitle: "Performance Assessment Rubric",
+        rubricDescription: "This rubric evaluates student mastery of key skills and understanding.",
+        rubricCriteria: []
+      };
+      
+      // Parse the rubric info to extract criteria if possible
+      try {
+        const rubricData = JSON.parse(rubricInfo);
+        if (rubricData.criteria && Array.isArray(rubricData.criteria)) {
+          performanceTask.rubricCriteria = rubricData.criteria.map((criterion: any, index: number) => ({
+            name: criterion.name || `Criterion ${index + 1}`,
+            description: criterion.description || "",
+            orderNumber: index
+          }));
+        }
+      } catch (e) {
+        console.log("Could not parse rubric info as JSON:", e);
+      }
+      
+      // Store the performance task in memory for the API to access
+      this.memory.updatePerformanceTaskUnit({
+        performanceTask: performanceTask
+      });
+      
+      // Format a complete summary with section headers for the text response
       return `# Complete Performance Task Summary\n\n## Requirements\n${requirements}\n\n## Rubric\n${rubricInfo}`;
     } catch (error) {
       console.error("Error generating performance task summary:", error);

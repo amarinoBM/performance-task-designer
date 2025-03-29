@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
+import { PerformanceTaskSummary } from "@/components/PerformanceTaskSummary";
+import { PerformanceTask } from "@/lib/langchain/schemas";
 
 export default function Home() {
   const [sessionId, setSessionId] = useState<string>("");
@@ -17,6 +19,23 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [showTopicInput, setShowTopicInput] = useState<boolean>(true);
+  const [performanceTask, setPerformanceTask] = useState<Partial<PerformanceTask> | null>(null);
+
+  // Store sessionId in localStorage when it changes
+  useEffect(() => {
+    if (sessionId) {
+      localStorage.setItem('ptSessionId', sessionId);
+    }
+  }, [sessionId]);
+
+  // Try to restore sessionId from localStorage on first load
+  useEffect(() => {
+    const savedSessionId = localStorage.getItem('ptSessionId');
+    if (savedSessionId) {
+      setSessionId(savedSessionId);
+      setShowTopicInput(false);
+    }
+  }, []);
 
   // Scroll to bottom of messages
   useEffect(() => {
@@ -30,6 +49,8 @@ export default function Home() {
     setIsLoading(true);
     const newSessionId = uuidv4();
     setSessionId(newSessionId);
+    // Save to localStorage
+    localStorage.setItem('ptSessionId', newSessionId);
     
     try {
       const response = await fetch("/api/curriculum", {
@@ -58,6 +79,22 @@ export default function Home() {
     }
   };
 
+  // Handle special responses like "yes" to view performance task summary
+  const handleSpecialResponses = (userMessage: string) => {
+    const lowerMessage = userMessage.toLowerCase().trim();
+    
+    // Check if the last assistant message was about viewing the performance task summary
+    const lastAssistantMessage = messages.filter(m => m.role === "assistant").pop();
+    if (lastAssistantMessage && lastAssistantMessage.content.includes("Would you like to see the full performance task summary?")) {
+      if (lowerMessage === "yes" || lowerMessage === "y") {
+        // If user says "yes" to viewing summary, fetch the final result
+        return true;
+      }
+    }
+    
+    return false;
+  };
+
   // Send user message to API
   const handleSendMessage = async () => {
     if (!inputMessage.trim() || isLoading || !sessionId) return;
@@ -67,17 +104,29 @@ export default function Home() {
     setMessages(prev => [...prev, { role: "user", content: userMessage }]);
     setIsLoading(true);
     
+    // Check if this is a special response (like "yes" to view summary)
+    const isSpecialResponse = handleSpecialResponses(userMessage);
+    
     try {
       const response = await fetch("/api/curriculum", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId, message: userMessage }),
+        body: JSON.stringify({ 
+          sessionId, 
+          message: userMessage,
+          isPerformanceTaskSummaryRequest: isSpecialResponse 
+        }),
       });
       
       const data = await response.json();
       
       if (response.ok) {
         setMessages(prev => [...prev, { role: "assistant", content: data.message }]);
+        
+        // If we receive a performance task in the response, store it
+        if (data.performanceTask) {
+          setPerformanceTask(data.performanceTask);
+        }
       } else {
         console.error("Error sending message:", data.error);
         setMessages(prev => [...prev, { 
@@ -118,15 +167,33 @@ export default function Home() {
         return <p key={i} dangerouslySetInnerHTML={{ __html: boldLine }} />;
       });
   };
+
+  // Handle reset/start a new task
+  const handleReset = () => {
+    localStorage.removeItem('ptSessionId');
+    setSessionId("");
+    setMessages([]);
+    setPerformanceTask(null);
+    setShowTopicInput(true);
+  };
   
   return (
     <main className="flex min-h-screen flex-col items-center p-4 sm:p-24">
       <Card className="w-full max-w-3xl mx-auto">
         <CardHeader>
-          <CardTitle className="text-xl sm:text-2xl">Performance Task Designer</CardTitle>
-          <CardDescription>
-            Design authentic performance tasks for students step-by-step with AI assistance
-          </CardDescription>
+          <div className="flex justify-between items-center">
+            <div>
+              <CardTitle className="text-xl sm:text-2xl">Performance Task Designer</CardTitle>
+              <CardDescription>
+                Design authentic performance tasks for students step-by-step with AI assistance
+              </CardDescription>
+            </div>
+            {!showTopicInput && (
+              <Button variant="outline" size="sm" onClick={handleReset}>
+                New Task
+              </Button>
+            )}
+          </div>
         </CardHeader>
         
         <CardContent>
@@ -242,6 +309,17 @@ export default function Home() {
           )}
         </CardFooter>
       </Card>
+
+      {/* Display performance task summary when available */}
+      {performanceTask && (
+        <div className="w-full max-w-3xl mx-auto mt-8">
+          <PerformanceTaskSummary 
+            task={performanceTask} 
+            unitTitle={unitTitle}
+            gradeName={gradeName}
+          />
+        </div>
+      )}
     </main>
   );
 }

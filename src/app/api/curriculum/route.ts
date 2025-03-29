@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PerformanceTaskService } from "@/lib/langchain/service";
+import { PerformanceTaskStepType } from "@/lib/langchain/schemas";
 
 // Map to store active sessions
 const activeSessions: Map<string, PerformanceTaskService> = new Map();
 
 export async function POST(request: NextRequest) {
   try {
-    const { sessionId, message, topic, unitTitle, gradeName } = await request.json();
+    const { sessionId, message, topic, unitTitle, gradeName, isPerformanceTaskSummaryRequest } = await request.json();
 
     // Check that we have all required parameters
     if (!sessionId) {
@@ -46,7 +47,37 @@ export async function POST(request: NextRequest) {
     // Process the message if provided
     if (message) {
       try {
-        const response = await session.processMessage(message);
+        let response;
+        
+        // If this is a special request to get the performance task summary
+        if (isPerformanceTaskSummaryRequest) {
+          // Force the current step to be PERFORMANCE_TASK_COMPLETE if it's not already
+          const currentState = session.getState();
+          if (currentState.currentStep !== PerformanceTaskStepType.PERFORMANCE_TASK_COMPLETE) {
+            // We need to process a message to advance to the next step
+            // Just use a generic message that will be accepted
+            response = await session.processMessage("yes");
+          } else {
+            // If we're already on the performance task complete step, just process the message
+            response = await session.processMessage(message);
+          }
+        } else {
+          // Normal message processing
+          response = await session.processMessage(message);
+        }
+        
+        // Get the current state to check if we're on the final step
+        const state = session.getState();
+        const currentStep = state.currentStep;
+        
+        // If we're on the final step, include the performance task data
+        if (currentStep === PerformanceTaskStepType.PERFORMANCE_TASK_COMPLETE) {
+          return NextResponse.json({ 
+            message: response,
+            performanceTask: state.performanceTask
+          });
+        }
+        
         return NextResponse.json({ message: response });
       } catch (error) {
         console.error("Error processing message:", error);
