@@ -8,8 +8,10 @@ import {
   FocusTopic,
   ProductOptions,
   ProductOption,
-  PerformanceTask
+  PerformanceTask,
+  StepValidationResult
 } from "./schemas";
+import { StepValidator, StepValidatorFactory } from "./validators";
 
 /**
  * Service to manage the performance task design flow
@@ -17,10 +19,12 @@ import {
 export class PerformanceTaskService {
   private memory: PerformanceTaskMemory;
   private chainFactory: PerformanceTaskChainFactory;
+  private validator: StepValidator;
 
-  constructor(topic: string) {
+  constructor(topic: string, validatorType: "llm" | "simple" = "simple") {
     this.memory = new PerformanceTaskMemory(new InMemoryMemory(), topic);
     this.chainFactory = new PerformanceTaskChainFactory(this.memory);
+    this.validator = StepValidatorFactory.createValidator(validatorType);
   }
 
   /**
@@ -38,7 +42,14 @@ export class PerformanceTaskService {
       currentStep: PerformanceTaskStepType.TASK_IDEAS
     });
     
-    return `Let's design a performance task for "${unitTitle}" for ${gradeName} grade students. What skills should students demonstrate through this task?`;
+    return `Hi. Let's design an engaging performance task for your unit "${unitTitle}".
+This task will help students show what they've learned in a creative and meaningful way.
+Before I suggest some ideas, tell me a bit about what you're hoping for:
+What kind of work do you want students to do or create? Do you want students to create something (like a song, exhibit, podcast)?
+Should they take on a real-world role (like curator, journalist, activist)?
+Should they present, build, perform, or reflect?
+Anything to avoid or emphasize?
+Tell me anything you're thinking — or just say "start with ideas" and I'll take it from there.`;
   }
 
   /**
@@ -52,28 +63,39 @@ export class PerformanceTaskService {
     let responseMessage = "";
 
     try {
+      // First validate if the user is ready to proceed or is asking for refinements
+      const previousStepOutput = this.getPreviousStepOutput(currentStep);
+      const validationResult = await this.validator.validateStep(
+        currentStep,
+        userMessage,
+        previousStepOutput
+      );
+
       switch (currentStep) {
         case PerformanceTaskStepType.TASK_IDEAS:
-          // Check if the user is selecting a task idea
-          if (userMessage.match(/\d+/) && this.memory.get<TaskIdea[]>("taskIdeas")) {
-            responseMessage = this.handleSelectTaskIdea(userMessage);
+          if (validationResult.isReadyForNextStep && validationResult.currentStepData?.selectedIds) {
+            // If validation indicates user selected a specific task
+            responseMessage = this.handleSelectTaskIdea(validationResult.currentStepData.selectedIds[0].toString());
           } else {
+            // Otherwise generate/refine task ideas
             responseMessage = await this.handleTaskIdeasStep(userMessage);
           }
           break;
         case PerformanceTaskStepType.FOCUS_TOPICS:
-          // Check if the user is selecting focus topics
-          if (userMessage.match(/\d+/) && this.memory.get<FocusTopic[]>("focusTopics")) {
-            responseMessage = this.handleSelectFocusTopics(userMessage);
+          if (validationResult.isReadyForNextStep && validationResult.currentStepData?.selectedIds) {
+            // If validation indicates user selected specific topics
+            responseMessage = this.handleSelectFocusTopics(validationResult.currentStepData.selectedIds.join(', '));
           } else {
+            // Otherwise generate/refine focus topics
             responseMessage = await this.handleFocusTopicsStep(userMessage);
           }
           break;
         case PerformanceTaskStepType.PRODUCT_OPTIONS:
-          // Check if the user is selecting product options
-          if (userMessage.match(/\d+/) && this.memory.get<ProductOption[]>("productOptions")) {
-            responseMessage = this.handleSelectProductOptions(userMessage);
+          if (validationResult.isReadyForNextStep && validationResult.currentStepData?.selectedIds) {
+            // If validation indicates user selected specific product options
+            responseMessage = this.handleSelectProductOptions(validationResult.currentStepData.selectedIds.join(', '));
           } else {
+            // Otherwise generate/refine product options
             responseMessage = await this.handleProductOptionsStep(userMessage);
           }
           break;
@@ -100,6 +122,42 @@ export class PerformanceTaskService {
   }
 
   /**
+   * Get the relevant data from the previous step
+   */
+  private getPreviousStepOutput(currentStep: PerformanceTaskStepType): any {
+    switch (currentStep) {
+      case PerformanceTaskStepType.TASK_IDEAS:
+        return this.memory.get<TaskIdea[]>("taskIdeas") || [];
+      case PerformanceTaskStepType.FOCUS_TOPICS:
+        return {
+          taskIdea: this.memory.get<TaskIdea>("selectedTaskIdea"),
+          focusTopics: this.memory.get<FocusTopic[]>("focusTopics") || []
+        };
+      case PerformanceTaskStepType.PRODUCT_OPTIONS:
+        return {
+          taskIdea: this.memory.get<TaskIdea>("selectedTaskIdea"),
+          focusTopics: this.memory.get<FocusTopic[]>("selectedFocusTopics") || [],
+          productOptions: this.memory.get<ProductOption[]>("productOptions") || []
+        };
+      case PerformanceTaskStepType.REQUIREMENTS:
+        return {
+          taskIdea: this.memory.get<TaskIdea>("selectedTaskIdea"),
+          focusTopics: this.memory.get<FocusTopic[]>("selectedFocusTopics") || [],
+          productOptions: this.memory.get<ProductOption[]>("selectedProductOptions") || []
+        };
+      case PerformanceTaskStepType.RUBRIC:
+        return {
+          taskIdea: this.memory.get<TaskIdea>("selectedTaskIdea"),
+          focusTopics: this.memory.get<FocusTopic[]>("selectedFocusTopics") || [],
+          productOptions: this.memory.get<ProductOption[]>("selectedProductOptions") || [],
+          requirements: this.memory.get("requirements")
+        };
+      default:
+        return {};
+    }
+  }
+
+  /**
    * Handle the task ideas step - generate performance task ideas
    */
   private async handleTaskIdeasStep(userInput: string): Promise<string> {
@@ -117,7 +175,7 @@ export class PerformanceTaskService {
       `**Task ${idea.id}: ${idea.title}**\n${idea.description}\n**Role:** ${idea.role}\n**Audience:** ${idea.audience}\n**Purpose:** ${idea.purpose}`
     ).join("\n\n");
     
-    return `Based on the unit information, I've generated these performance task ideas:\n\n${formattedIdeas}\n\nWhich task idea would you like to develop further? Please select by number.`;
+    return `Based on the unit information, I've generated these performance task ideas:\n\n${formattedIdeas}\n\nWhich of these ideas resonates with you, or would you like me to refine them based on your feedback?`;
   }
 
   /**
@@ -255,23 +313,28 @@ export class PerformanceTaskService {
    * Handle the requirements step - generate requirements
    */
   private async handleRequirementsStep(userInput: string): Promise<string> {
-    const chain = this.chainFactory.createChainForStep(PerformanceTaskStepType.REQUIREMENTS, userInput);
-    
-    // Execute the chain
-    const result = await chain.invoke({});
-    
-    // Store the requirements in memory
-    this.memory.set("requirements", result);
-    this.memory.setCurrentStep(PerformanceTaskStepType.RUBRIC);
-    
-    // Parse the requirements to display
     try {
-      const reqObj = JSON.parse(result as string);
+      const chain = this.chainFactory.createChainForStep(PerformanceTaskStepType.REQUIREMENTS, userInput);
       
-      return `Here's the start of your performance task:\n\n**Title:** ${reqObj.title}\n**Subtitle:** ${reqObj.subtitle}\n\n**Description:**\n${reqObj.description}\n\n**Purpose:**\n${reqObj.purpose}\n\n**Requirements:**\n${reqObj.requirements}\n\nNow, let's create a rubric to assess student work. What specific skills should we assess?`;
-    } catch (e) {
-      // If we can't parse the JSON, just return the raw result
-      return `Here are the requirements for your performance task:\n\n${result}\n\nNow, let's create a rubric to assess student work. What specific skills should we assess?`;
+      // Execute the chain
+      const result = await chain.invoke({});
+      
+      // Check if result is valid
+      if (!result) {
+        throw new Error("Empty result from requirements chain");
+      }
+      
+      // Store the requirements in memory
+      this.memory.set("requirements", result);
+      this.memory.setCurrentStep(PerformanceTaskStepType.RUBRIC);
+      
+      // Simply use the formatted output directly
+      return `Here's the start of your performance task:\n\n${result}\n\nNow, let's create a rubric to assess student work. What specific skills should we assess?`;
+    } catch (error) {
+      console.error("Error in requirements step:", error);
+      
+      // Return a helpful error message
+      return "I'm having trouble generating the requirements for your performance task. Could you please provide more details about what skills you want students to demonstrate through this task?";
     }
   }
 
@@ -279,27 +342,21 @@ export class PerformanceTaskService {
    * Handle the rubric step - generate rubric
    */
   private async handleRubricStep(userInput: string): Promise<string> {
-    const chain = this.chainFactory.createChainForStep(PerformanceTaskStepType.RUBRIC, userInput);
-    
-    // Execute the chain
-    const result = await chain.invoke({});
-    
-    // Store the rubric info in memory
-    this.memory.set("rubricInfo", result);
-    this.memory.setCurrentStep(PerformanceTaskStepType.PERFORMANCE_TASK_COMPLETE);
-    
-    // Parse the rubric to display
     try {
-      const rubricObj = JSON.parse(result as string);
+      const chain = this.chainFactory.createChainForStep(PerformanceTaskStepType.RUBRIC, userInput);
       
-      const criteriaText = rubricObj.rubricCriteria.map((c: any) => 
-        `**${c.name}:** ${c.description}`
-      ).join("\n");
+      // Execute the chain
+      const result = await chain.invoke({});
       
-      return `Here's the rubric for your performance task:\n\n**Title:** ${rubricObj.rubricTitle}\n\n**Description:**\n${rubricObj.rubricDescription}\n\n**Criteria:**\n${criteriaText}\n\nThe performance task is now complete! Would you like to see the full performance task summary?`;
-    } catch (e) {
-      // If we can't parse the JSON, just return the raw result
-      return `Here's the rubric information for your performance task:\n\n${result}\n\nThe performance task is now complete! Would you like to see the full performance task summary?`;
+      // Store the rubric info in memory
+      this.memory.set("rubricInfo", result);
+      this.memory.setCurrentStep(PerformanceTaskStepType.PERFORMANCE_TASK_COMPLETE);
+      
+      // Just return the formatted output directly
+      return `Here's the rubric for your performance task:\n\n${result}\n\nThe performance task is now complete! Would you like to see the full performance task summary?`;
+    } catch (error) {
+      console.error("Error in rubric step:", error);
+      return "I'm having trouble generating the rubric. Could you provide more details about what skills you want to assess?";
     }
   }
 
@@ -307,23 +364,17 @@ export class PerformanceTaskService {
    * Handle the performance task complete step - generate final summary
    */
   private async handlePerformanceTaskCompleteStep(): Promise<string> {
-    const chain = this.chainFactory.createChainForStep(PerformanceTaskStepType.PERFORMANCE_TASK_COMPLETE, "");
-    
-    // Execute the chain
-    const result = await chain.invoke({});
-    const performanceTask = result as PerformanceTask;
-    
-    // Store the complete performance task in memory
-    this.memory.updatePerformanceTaskUnit({
-      performanceTask
-    });
-    
-    // Format the criteria for display
-    const criteriaText = performanceTask.rubricCriteria.map(c => 
-      `**${c.name}:** ${c.description}`
-    ).join("\n");
-    
-    return `# Complete Performance Task Summary\n\n**Title:** ${performanceTask.title}\n**Subtitle:** ${performanceTask.subtitle}\n\n**Description:**\n${performanceTask.description}\n\n**Purpose:**\n${performanceTask.purpose}\n\n**Requirements:**\n${performanceTask.requirements}\n\n**Success Criteria:**\n${performanceTask.successCriteria}\n\n**Suggested Focus Topics:**\n${performanceTask.suggestedFocusTopic}\n\n**Rubric Title:** ${performanceTask.rubricTitle}\n\n**Rubric Description:**\n${performanceTask.rubricDescription}\n\n**Rubric Criteria:**\n${criteriaText}`;
+    try {
+      // We'll just combine the requirements and rubric info directly
+      const requirements = this.memory.get<string>("requirements") || "";
+      const rubricInfo = this.memory.get<string>("rubricInfo") || "";
+      
+      // Format a complete summary with section headers
+      return `# Complete Performance Task Summary\n\n## Requirements\n${requirements}\n\n## Rubric\n${rubricInfo}`;
+    } catch (error) {
+      console.error("Error generating performance task summary:", error);
+      return "I'm having trouble generating the complete summary. Please let me know if you'd like to review specific parts of the performance task.";
+    }
   }
 
   /**

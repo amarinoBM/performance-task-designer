@@ -105,4 +105,13 @@ export const PerformanceTaskUnitSchema = z.object({
   }).optional()
 });
 
-export type PerformanceTaskUnit = z.infer<typeof PerformanceTaskUnitSchema>; 
+export type PerformanceTaskUnit = z.infer<typeof PerformanceTaskUnitSchema>;
+
+// Step validation result schema
+export const StepValidationResultSchema = z.object({
+  isReadyForNextStep: z.boolean(),
+  currentStepData: z.any().optional(),
+  message: z.string().optional(),
+});
+
+export type StepValidationResult = z.infer<typeof StepValidationResultSchema>; 

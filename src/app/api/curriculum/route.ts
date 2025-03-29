@@ -45,8 +45,21 @@ export async function POST(request: NextRequest) {
 
     // Process the message if provided
     if (message) {
-      const response = await session.processMessage(message);
-      return NextResponse.json({ message: response });
+      try {
+        const response = await session.processMessage(message);
+        return NextResponse.json({ message: response });
+      } catch (error) {
+        console.error("Error processing message:", error);
+        
+        // Send a more helpful error response
+        return NextResponse.json(
+          { 
+            message: "I encountered an error while processing your request. Please try again with a different prompt or refresh the page if the issue persists.",
+            error: "Message processing failed" 
+          },
+          { status: 500 }
+        );
+      }
     } else {
       return NextResponse.json(
         { error: "Missing message parameter" },

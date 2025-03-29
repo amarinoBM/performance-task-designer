@@ -23,6 +23,23 @@ export type UnitForUnitStory = {
   };
 };
 
+// Create system prompt for performance tasks
+export const performanceTaskSystemPrompt = (unit: UnitForUnitStory) => `# Goal:
+Design an authentic, engaging, and real-world performance task for the unit titled "${unit.title}" tailored for ${unit.grade.name} grade students in a virtual school for neurodiverse learners. This performance task serves as the culminating assessment, allowing students to demonstrate mastery of essential skills through accessible, practical scenarios, implicitly following Jay Tighe's GRASPS model (Goal, Role, Audience, Situation, Product, Standards).
+# Required Fields (ALL MUST BE INCLUDED):
+- title (string): Clear, engaging title (15 words or less)
+- subtitle (string): Brief, descriptive subtitle (25 words or less)
+- description (string): Concise explanation in student-friendly language (3-5 sentences)
+- purpose (string): 3-5 warm, student-facing sentences explaining why this task matters to their lives
+- requirements (string): 8-10 student-friendly bullet points (MUST use \\n between points)
+- successCriteria (string): 4 product options, each as a single bullet point (MUST use \\n between points)
+- suggestedFocusTopic (string): 5-7 topic options as bullet points (CRITICAL: MUST use \\n between EACH topic)
+- rubricTitle (string): Clear, descriptive title for the rubric
+- rubricDescription (string): Brief description of what the rubric assesses (1-2 sentences)
+- rubricCriteria (array of objects): Four performance levels (Try, Relevant, Accurate, Complex) with descriptions and orderNumber
+# Context:
+This prompt is for a progressive virtual school focused on mastery-based learning for neurodiverse students. Performance tasks should be authentic, engaging, and accessible, connecting classroom learning to real-world applications.`;
+
 // Create LLM instances
 const chatModel = new ChatOpenAI({
   modelName: "gpt-3.5-turbo",
@@ -33,6 +50,8 @@ const chatModel = new ChatOpenAI({
 const structuredChatModel = new ChatOpenAI({
   modelName: "gpt-3.5-turbo",
   temperature: 0.2, // Lower temperature for more structured outputs
+  maxTokens: 2048,  // Ensure enough tokens for complex responses
+  timeout: 60000,   // Increase timeout to 60 seconds
 });
 
 /**
@@ -78,17 +97,26 @@ export class PerformanceTaskChainFactory {
     
     const taskIdeasTemplate = `
       # Goal:
-      Design task ideas for the unit titled "${unitInfo.title}" tailored for ${unitInfo.grade.name} grade students in a virtual school for neurodiverse learners.
+      Design an authentic, engaging, and real-world performance task for the unit titled "${unitInfo.title}" tailored for ${unitInfo.grade.name} grade students in a virtual school for neurodiverse learners. 
+      
+      This performance task serves as the culminating assessment, allowing students to demonstrate mastery of essential skills through accessible, practical scenarios, implicitly following Jay Tighe's GRASPS model (Goal, Role, Audience, Situation, Product, Standards).
       
       User has provided this context: "{userInput}"
       
-      ## Step 1: Design Three Task Ideas
-      Create 3 distinct, engaging task ideas that align with real-world roles and scenarios. Each idea should:
-      - Connect to a real-world role relevant to the unit skills
-      - Include a clear audience and purpose
-      - Directly connect to the skills needing assessment
+      ## Step 1: Propose Three GRASPS-Aligned Task Ideas
+      Analyze the unit description, the specific skills requiring assessment, and the essential question. Propose **3 distinct, engaging ideas** for performance tasks that implicitly align with the GRASPS model. Present each idea clearly and concisely (2-3 sentences each), focusing on an authentic role, realistic scenario, and implied audience, while avoiding overly specific focus topics or final products at this stage.
       
-      Generate 3 distinct task ideas. Each should have an id, title, description, role, audience, and purpose.
+      ### Each Task Idea Should:
+      - Reflect a real-world role and scenario tied to the unit's essential skills.
+      - Suggest a clear audience and purpose without naming a specific product.
+      - Connect directly to the skills needing assessment, keeping flexibility for later refinement.
+      
+      **Example (for a unit on U.S. Presidents and American History):**
+      1. "Assume the role of a historian advising a museum on how to honor a U.S. President's legacy, sharing insights with visitors to highlight their influence on history."
+      2. "Take on the role of a journalist investigating a U.S. President's leadership, presenting findings to readers eager to understand their impact on society."
+      3. "Become a community leader organizing an event to celebrate a U.S. President's contributions, proposing ideas to local citizens to promote historical awareness."
+      
+      Generate 3 distinct task ideas that follow the GRASPS model. Each should have an id, title, description, role, audience, and purpose.
       
       {format_instructions}
     `;
@@ -132,10 +160,22 @@ export class PerformanceTaskChainFactory {
       
       User has provided this additional context: "{userInput}"
       
-      ## Step 2: Provide Focus Topic Options
-      Provide 5-7 diverse focus topic options tied to the unit's essential question and content themes. Keep descriptions brief and accessible.
+      ## Step 2: Offer Focus Topic Options
+      Provide **10 diverse, engaging focus topic options** tied to the unit's essential question, key understandings, and content themes. Keep descriptions brief (1 sentence each) and accessible for neurodiverse learners.
       
-      Each focus topic should have an id, topic (title), and description.
+      ### Examples of Suggested Focus Topic Types (for U.S. Presidents):
+      1. "George Washington's leadership during the Revolutionary War."
+      2. "Abraham Lincoln's role in the abolition of slavery."
+      3. "Franklin D. Roosevelt's New Deal during the Great Depression."
+      4. "John F. Kennedy's handling of the Cuban Missile Crisis."
+      5. "Richard Nixon's foreign policy with China."
+      6. "Jimmy Carter's focus on human rights."
+      7. "Ronald Reagan's economic policies in the 1980s."
+      8. "Bill Clinton's impact on technology and economy."
+      9. "Barack Obama's Affordable Care Act."
+      10. "Donald Trump's approach to immigration policy."
+      
+      Each focus topic should have an id, topic (title), and description. Create topics that are suitable for neurodiverse learners in a virtual school environment.
       
       {format_instructions}
     `;
@@ -192,12 +232,26 @@ export class PerformanceTaskChainFactory {
       
       User has provided this additional context: "{userInput}"
       
-      ## Step 3: Offer Final Product Options
-      Present 4 diverse, accessible final product options that align with the selected task idea and focus topics.
-      Each option should:
-      - Be practical and engaging for a virtual school environment
-      - Support Universal Design for Learning principles
+      ## Step 3: Provide Final Product Options
+      Present a **list of 10 diverse, accessible final product options** that align with the selected task idea, focus topic(s), and essential skills. Each option should be practical, engaging, and suited to a virtual school environment, supporting Universal Design for Learning (UDL) principles. Present each as a single bullet point with a brief description (1 sentence).
+      
+      ### Final Product Examples (For a Historical Legacy Project):
+      1. **Digital Exhibit Guide:** Create an online guide with visuals for museum visitors to learn about a historical figure's legacy.
+      2. **Podcast Episode:** Record a 5-minute audio segment for museum visitors to hear about a historical impact.
+      3. **Infographic Poster:** Make a visual poster summarizing achievements for a museum wall.
+      4. **Video Tour Script:** Write and record a short script for a virtual museum tour.
+      5. **Interactive Timeline:** Design a clickable timeline showing key moments for a museum display.
+      6. **Letter to Museum Board:** Write a letter suggesting how the museum should honor a historical figure.
+      7. **Photo Essay:** Combine images (drawn or found) with captions to showcase a legacy.
+      8. **Blog Post:** Write a short online article for a museum's website about historical influence.
+      9. **Storyboard for Exhibit:** Draw or design a layout for a museum exhibit.
+      10. **Social Media Campaign:** Create a series of posts to promote a museum's exhibit.
+      
+      Each product option should:
+      - Be practical and engaging for neurodiverse students in a virtual school environment
+      - Support Universal Design for Learning principles for maximum accessibility
       - Be presented as a clear, single-sentence description
+      - Provide multiple means of engagement, representation, and expression
       
       Each product option should have an id, title, and description.
       
@@ -229,8 +283,6 @@ export class PerformanceTaskChainFactory {
    * Chain to generate student-facing requirements (Step 4)
    */
   private createRequirementsChain(userInput: string): RunnableSequence {
-    // This won't use a full parser since we're building up the performance task step by step
-    
     // Get the selected components from memory
     const selectedTaskIdea = this.memory.get<TaskIdea>("selectedTaskIdea");
     const selectedFocusTopics = this.memory.get<FocusTopic[]>("selectedFocusTopics") || [];
@@ -266,22 +318,48 @@ export class PerformanceTaskChainFactory {
       
       User has provided this additional context: "{userInput}"
       
-      ## Step 4: Create Student-Facing Requirements
-      Provide a thorough, practical student-facing description including:
-      - A clear, engaging title (15 words or less)
-      - A brief, descriptive subtitle (25 words or less)
-      - A 2-3 sentence overview of the task in simple terms
-      - A purpose statement explaining why this task matters to their lives (3-5 sentences)
-      - 8-10 detailed bullet points tied to essential skills
+      ## Step 4: Present Student-Facing Requirements and Criteria
+      Create a student-friendly performance task description with clear requirements, tailored for neurodiverse learners.
       
-      Return in the following JSON format:
-      {
-        "title": "Title of the performance task",
-        "subtitle": "Subtitle of the performance task",
-        "description": "2-3 sentence description of the task",
-        "purpose": "3-5 sentence purpose statement",
-        "requirements": "8-10 bullet points separated by \\n"
-      }
+      Format your response in this exact structure:
+      
+      TITLE: [A clear, engaging title for the performance task (15 words or less)]
+      
+      SUBTITLE: [A brief, descriptive subtitle explaining the task (25 words or less)]
+      
+      DESCRIPTION: [A 2-3 sentence overview of the task in simple terms that students can understand]
+      
+      PURPOSE: [3-5 warm, student-facing sentences explaining why this task matters to their lives]
+      
+      REQUIREMENTS:
+      - [Requirement 1]
+      - [Requirement 2]
+      - [Requirement 3]
+      - [And so on... (8-10 total requirements)]
+      
+      Here's an example for a Revolutionary Movement Performance Task:
+      
+      TITLE: Revolutionary Voices Project
+      
+      SUBTITLE: Amplify historical perspectives through creative communication
+      
+      DESCRIPTION: You will take on the role of a historian documenting voices from a revolutionary movement. By researching key figures and events, you'll create a compelling product that helps others understand the human experiences behind historical change.
+      
+      PURPOSE: Understanding revolutionary movements helps us see how ordinary people can create extraordinary change. By exploring these stories, you'll discover how social movements develop, what motivates people to take action, and how their choices still impact our world today. These insights can help you recognize your own power to influence communities you care about.
+      
+      REQUIREMENTS:
+      - Select a specific revolutionary movement or time period to research
+      - Identify at least three key individuals or groups from your chosen movement
+      - Research their motivations, challenges, and contributions using reliable sources
+      - Analyze how their actions created change and still influence society today
+      - Choose one of the approved product formats to present your findings
+      - Include both factual information and personal perspectives/stories
+      - Connect historical events to contemporary issues or movements
+      - Incorporate visual elements to enhance understanding
+      - Provide proper citations for all sources used
+      - Review your work using the provided rubric before submission
+      
+      Keep language clear, direct, and accessible for neurodiverse students. Include concrete expectations and avoid ambiguity.
     `;
     
     const requirementsPrompt = PromptTemplate.fromTemplate(requirementsTemplate);
@@ -311,7 +389,7 @@ export class PerformanceTaskChainFactory {
   private createRubricChain(userInput: string): RunnableSequence {
     // Get the components created so far from memory
     const selectedTaskIdea = this.memory.get<TaskIdea>("selectedTaskIdea");
-    const requirements = this.memory.get<string>("requirements");
+    const requirements = this.memory.get<string>("requirements") || "";
     
     if (!selectedTaskIdea || !requirements) {
       throw new Error("Missing required components for rubric creation");
@@ -327,45 +405,72 @@ export class PerformanceTaskChainFactory {
       Audience: {audience}
       Purpose: {purpose}
       
-      Requirements: {requirements}
+      Requirements: 
+      {requirements}
       
       User has provided this additional context: "{userInput}"
       
-      ## Step 5: Develop a Student-Facing Rubric
-      Create a detailed, skill-focused rubric with four levels: Try, Relevant, Accurate, and Complex.
-      Each level should:
-      - Include clear, descriptive language for neurodiverse students
-      - Focus on observable behaviors for the targeted skills
+      ## Step 5: Create a Student-Facing Rubric
+      Develop a detailed, skill-focused rubric to assess specific skills (not content knowledge). 
       
-      Return in the following JSON format:
-      {
-        "successCriteria": "4 product options as bullet points separated by \\n",
-        "suggestedFocusTopic": "5-7 topic options as bullet points separated by \\n",
-        "rubricTitle": "Clear, descriptive title for the rubric",
-        "rubricDescription": "Brief description of what the rubric assesses",
-        "rubricCriteria": [
-          {
-            "name": "Try",
-            "description": "Description for this level",
-            "orderNumber": 1
-          },
-          {
-            "name": "Relevant",
-            "description": "Description for this level",
-            "orderNumber": 2
-          },
-          {
-            "name": "Accurate",
-            "description": "Description for this level",
-            "orderNumber": 3
-          },
-          {
-            "name": "Complex",
-            "description": "Description for this level",
-            "orderNumber": 4
-          }
-        ]
-      }
+      Format your response like this:
+      
+      RUBRIC TITLE: [Clear title for the rubric]
+      
+      RUBRIC DESCRIPTION: [Brief description of what the rubric assesses]
+      
+      SUCCESS CRITERIA:
+      - [Product option 1]
+      - [Product option 2]
+      - [Product option 3]
+      - [Product option 4]
+      
+      SUGGESTED FOCUS TOPICS:
+      - [Topic 1]
+      - [Topic 2]
+      - [Topic 3]
+      - [Topic 4]
+      - [Topic 5]
+      
+      CRITERIA:
+      
+      TRY: [Description for initial effort at the skill, with significant gaps]
+      
+      RELEVANT: [Description for partial use of the skill, with some correct application but notable weaknesses]
+      
+      ACCURATE: [Description for consistent and correct application of the skill, meeting expectations]
+      
+      COMPLEX: [Description for advanced and detailed application of the skill, exceeding expectations with depth]
+      
+      Here's an example for a Revolutionary Movement Performance Task:
+      
+      RUBRIC TITLE: Revolutionary Perspectives Assessment
+      
+      RUBRIC DESCRIPTION: This rubric evaluates your ability to research historical movements, analyze multiple perspectives, and communicate complex ideas effectively.
+      
+      SUCCESS CRITERIA:
+      - Digital Story Map with images and text explaining key events and figures
+      - Podcast Series featuring "interviews" with revolutionary figures
+      - Virtual Museum Exhibit showcasing artifacts and personal stories
+      - Illustrated Timeline connecting revolutionary events to modern impacts
+      
+      SUGGESTED FOCUS TOPICS:
+      - The American Revolution (1765-1783)
+      - The French Revolution (1789-1799)
+      - The Haitian Revolution (1791-1804)
+      - Women's Suffrage Movements (19th-20th century)
+      - Civil Rights Movement (1954-1968)
+      - Arab Spring (2010-2012)
+      
+      CRITERIA:
+      
+      TRY: Research identifies basic facts about the revolutionary movement but lacks detail or contains inaccuracies. Few perspectives are included, and connections between events are minimal. Product organization is difficult to follow, with limited use of visual elements and source citations.
+      
+      RELEVANT: Research includes some accurate facts about the movement and a few different perspectives. Makes simple connections between events and their outcomes. Product is somewhat organized with some supporting visual elements and attempted citations, though quality may be inconsistent.
+      
+      ACCURATE: Research presents accurate, detailed information about the movement with multiple perspectives clearly represented. Makes logical connections between events and their historical impact. Product is well-organized with effective visual elements and proper citations for all major sources.
+      
+      COMPLEX: Research demonstrates exceptional depth, including nuanced details and diverse perspectives that show thorough understanding. Makes insightful connections between revolutionary events and contemporary issues. Product is exceptionally organized with compelling visual elements that enhance meaning, and impeccable, detailed citations.
     `;
     
     const rubricPrompt = PromptTemplate.fromTemplate(rubricTemplate);
@@ -399,8 +504,8 @@ export class PerformanceTaskChainFactory {
     const rubricInfo = JSON.parse(this.memory.get<string>("rubricInfo") || "{}");
     
     const performanceTaskTemplate = `
-      ## Step 6: Return a Summary in JSON Format
-      Create a complete performance task summary with all required fields.
+      ## Step 6: Return a Summary of the Performance Task
+      Create a complete performance task summary with all required fields following Jay Tighe's GRASPS model.
       
       Requirements data:
       {requirementsData}
@@ -408,7 +513,19 @@ export class PerformanceTaskChainFactory {
       Rubric data:
       {rubricData}
       
-      Combine these components into a complete performance task.
+      Combine these components into a complete performance task with the following fields:
+      - title
+      - subtitle
+      - description
+      - purpose
+      - requirements
+      - successCriteria
+      - suggestedFocusTopic
+      - rubricTitle
+      - rubricDescription
+      - rubricCriteria
+      
+      !IMPORTANT: the return format must be in json format.
       
       {format_instructions}
     `;
