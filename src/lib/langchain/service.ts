@@ -370,7 +370,7 @@ Tell me anything you're thinking — or just say "start with ideas" and I'll tak
       const requirements = this.memory.get<string>("requirements") || "";
       const rubricInfo = this.memory.get<string>("rubricInfo") || "";
       
-      // Create a structured performance task object
+      // Create a structured performance task object without relying on JSON parsing
       const performanceTask = {
         title: selectedTaskIdea.title || "Performance Task",
         subtitle: selectedTaskIdea.description || "",
@@ -381,22 +381,15 @@ Tell me anything you're thinking — or just say "start with ideas" and I'll tak
         suggestedFocusTopic: "",
         rubricTitle: "Performance Assessment Rubric",
         rubricDescription: "This rubric evaluates student mastery of key skills and understanding.",
-        rubricCriteria: []
+        // Create a default criterion instead of trying to parse JSON
+        rubricCriteria: [
+          {
+            name: "Overall Performance",
+            description: rubricInfo.split("\n").slice(0, 3).join(" ").substring(0, 100) + "...",
+            orderNumber: 0
+          }
+        ]
       };
-      
-      // Parse the rubric info to extract criteria if possible
-      try {
-        const rubricData = JSON.parse(rubricInfo);
-        if (rubricData.criteria && Array.isArray(rubricData.criteria)) {
-          performanceTask.rubricCriteria = rubricData.criteria.map((criterion: any, index: number) => ({
-            name: criterion.name || `Criterion ${index + 1}`,
-            description: criterion.description || "",
-            orderNumber: index
-          }));
-        }
-      } catch (e) {
-        console.log("Could not parse rubric info as JSON:", e);
-      }
       
       // Store the performance task in memory for the API to access
       this.memory.updatePerformanceTaskUnit({

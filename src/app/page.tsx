@@ -1,56 +1,127 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useReducer, useRef, useEffect } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { PerformanceTaskSummary } from "@/components/PerformanceTaskSummary";
-import { PerformanceTask } from "@/lib/langchain/schemas";
+
+// Define the state interface
+interface AppState {
+  sessionId: string;
+  topic: string;
+  unitTitle: string;
+  gradeName: string;
+  messages: Array<{role: "user" | "assistant", content: string}>;
+  inputMessage: string;
+  isLoading: boolean;
+  showTopicInput: boolean;
+  performanceTask: any | null;
+}
+
+// Define action types
+type AppAction = 
+  | { type: 'SET_SESSION_ID', payload: string }
+  | { type: 'SET_TOPIC', payload: string }
+  | { type: 'SET_UNIT_TITLE', payload: string }
+  | { type: 'SET_GRADE_NAME', payload: string }
+  | { type: 'SET_INPUT_MESSAGE', payload: string }
+  | { type: 'SET_LOADING', payload: boolean }
+  | { type: 'ADD_MESSAGE', payload: {role: "user" | "assistant", content: string} }
+  | { type: 'SET_MESSAGES', payload: Array<{role: "user" | "assistant", content: string}> }
+  | { type: 'SET_SHOW_TOPIC_INPUT', payload: boolean }
+  | { type: 'SET_PERFORMANCE_TASK', payload: any | null }
+  | { type: 'RESET_STATE' }
+  | { type: 'LOAD_SESSION', payload: Partial<AppState> };
+
+// Define the reducer function
+function appReducer(state: AppState, action: AppAction): AppState {
+  switch (action.type) {
+    case 'SET_SESSION_ID':
+      return { ...state, sessionId: action.payload };
+    case 'SET_TOPIC':
+      return { ...state, topic: action.payload };
+    case 'SET_UNIT_TITLE':
+      return { ...state, unitTitle: action.payload };
+    case 'SET_GRADE_NAME':
+      return { ...state, gradeName: action.payload };
+    case 'SET_INPUT_MESSAGE':
+      return { ...state, inputMessage: action.payload };
+    case 'SET_LOADING':
+      return { ...state, isLoading: action.payload };
+    case 'ADD_MESSAGE':
+      return { ...state, messages: [...state.messages, action.payload] };
+    case 'SET_MESSAGES':
+      return { ...state, messages: action.payload };
+    case 'SET_SHOW_TOPIC_INPUT':
+      return { ...state, showTopicInput: action.payload };
+    case 'SET_PERFORMANCE_TASK':
+      return { ...state, performanceTask: action.payload };
+    case 'RESET_STATE':
+      return {
+        ...initialState,
+        sessionId: '',
+        messages: [],
+        performanceTask: null,
+        showTopicInput: true
+      };
+    case 'LOAD_SESSION':
+      return { ...state, ...action.payload };
+    default:
+      return state;
+  }
+}
+
+// Define the initial state
+const initialState: AppState = {
+  sessionId: "",
+  topic: "Revolutions and Change",
+  unitTitle: "Revolutionary Movements",
+  gradeName: "8th",
+  messages: [],
+  inputMessage: "",
+  isLoading: false,
+  showTopicInput: true,
+  performanceTask: null
+};
 
 export default function Home() {
-  const [sessionId, setSessionId] = useState<string>("");
-  const [topic, setTopic] = useState<string>("Revolutions and Change");
-  const [unitTitle, setUnitTitle] = useState<string>("Revolutionary Movements");
-  const [gradeName, setGradeName] = useState<string>("8th");
-  const [messages, setMessages] = useState<{role: "user" | "assistant"; content: string}[]>([]);
-  const [inputMessage, setInputMessage] = useState<string>("");
-  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [state, dispatch] = useReducer(appReducer, initialState);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const [showTopicInput, setShowTopicInput] = useState<boolean>(true);
-  const [performanceTask, setPerformanceTask] = useState<Partial<PerformanceTask> | null>(null);
 
-  // Store sessionId in localStorage when it changes
-  useEffect(() => {
-    if (sessionId) {
-      localStorage.setItem('ptSessionId', sessionId);
-    }
-  }, [sessionId]);
-
-  // Try to restore sessionId from localStorage on first load
+  // Load session from localStorage on mount
   useEffect(() => {
     const savedSessionId = localStorage.getItem('ptSessionId');
     if (savedSessionId) {
-      setSessionId(savedSessionId);
-      setShowTopicInput(false);
+      dispatch({ type: 'LOAD_SESSION', payload: { 
+        sessionId: savedSessionId,
+        showTopicInput: false 
+      }});
     }
   }, []);
+
+  // Save session to localStorage when it changes
+  useEffect(() => {
+    if (state.sessionId) {
+      localStorage.setItem('ptSessionId', state.sessionId);
+    }
+  }, [state.sessionId]);
 
   // Scroll to bottom of messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [state.messages]);
 
   // Initialize session on topic submission
   const handleTopicSubmit = async () => {
-    if (!topic.trim() || !unitTitle.trim() || !gradeName.trim()) return;
+    if (!state.topic.trim() || !state.unitTitle.trim() || !state.gradeName.trim()) return;
     
-    setIsLoading(true);
+    dispatch({ type: 'SET_LOADING', payload: true });
+    
     const newSessionId = uuidv4();
-    setSessionId(newSessionId);
-    // Save to localStorage
-    localStorage.setItem('ptSessionId', newSessionId);
+    dispatch({ type: 'SET_SESSION_ID', payload: newSessionId });
     
     try {
       const response = await fetch("/api/curriculum", {
@@ -58,90 +129,75 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
           sessionId: newSessionId, 
-          topic,
-          unitTitle,
-          gradeName
+          topic: state.topic,
+          unitTitle: state.unitTitle,
+          gradeName: state.gradeName
         }),
       });
       
       const data = await response.json();
       
       if (response.ok) {
-        setMessages([{ role: "assistant", content: data.message }]);
-        setShowTopicInput(false);
+        dispatch({ type: 'SET_MESSAGES', payload: [{ role: "assistant", content: data.message }] });
+        dispatch({ type: 'SET_SHOW_TOPIC_INPUT', payload: false });
       } else {
         console.error("Error initializing session:", data.error);
       }
     } catch (error) {
       console.error("Error initializing session:", error);
     } finally {
-      setIsLoading(false);
+      dispatch({ type: 'SET_LOADING', payload: false });
     }
-  };
-
-  // Handle special responses like "yes" to view performance task summary
-  const handleSpecialResponses = (userMessage: string) => {
-    const lowerMessage = userMessage.toLowerCase().trim();
-    
-    // Check if the last assistant message was about viewing the performance task summary
-    const lastAssistantMessage = messages.filter(m => m.role === "assistant").pop();
-    if (lastAssistantMessage && lastAssistantMessage.content.includes("Would you like to see the full performance task summary?")) {
-      if (lowerMessage === "yes" || lowerMessage === "y") {
-        // If user says "yes" to viewing summary, fetch the final result
-        return true;
-      }
-    }
-    
-    return false;
   };
 
   // Send user message to API
   const handleSendMessage = async () => {
-    if (!inputMessage.trim() || isLoading || !sessionId) return;
+    if (!state.inputMessage.trim() || state.isLoading || !state.sessionId) return;
     
-    const userMessage = inputMessage;
-    setInputMessage("");
-    setMessages(prev => [...prev, { role: "user", content: userMessage }]);
-    setIsLoading(true);
-    
-    // Check if this is a special response (like "yes" to view summary)
-    const isSpecialResponse = handleSpecialResponses(userMessage);
+    const userMessage = state.inputMessage;
+    dispatch({ type: 'SET_INPUT_MESSAGE', payload: '' });
+    dispatch({ type: 'ADD_MESSAGE', payload: { role: "user", content: userMessage } });
+    dispatch({ type: 'SET_LOADING', payload: true });
     
     try {
       const response = await fetch("/api/curriculum", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
-          sessionId, 
-          message: userMessage,
-          isPerformanceTaskSummaryRequest: isSpecialResponse 
+          sessionId: state.sessionId, 
+          message: userMessage
         }),
       });
       
       const data = await response.json();
       
       if (response.ok) {
-        setMessages(prev => [...prev, { role: "assistant", content: data.message }]);
+        dispatch({ type: 'ADD_MESSAGE', payload: { role: "assistant", content: data.message } });
         
-        // If we receive a performance task in the response, store it
         if (data.performanceTask) {
-          setPerformanceTask(data.performanceTask);
+          dispatch({ type: 'SET_PERFORMANCE_TASK', payload: data.performanceTask });
         }
       } else {
         console.error("Error sending message:", data.error);
-        setMessages(prev => [...prev, { 
-          role: "assistant", 
-          content: "Sorry, there was an error processing your message." 
-        }]);
+        dispatch({ 
+          type: 'ADD_MESSAGE', 
+          payload: { 
+            role: "assistant", 
+            content: "Sorry, there was an error processing your message." 
+          } 
+        });
       }
     } catch (error) {
       console.error("Error sending message:", error);
-      setMessages(prev => [...prev, { 
-        role: "assistant", 
-        content: "Sorry, there was an error processing your message." 
-      }]);
+      dispatch({ 
+        type: 'ADD_MESSAGE', 
+        payload: { 
+          role: "assistant", 
+          content: "Sorry, there was an error processing your message." 
+        } 
+      });
     } finally {
-      setIsLoading(false);
+      dispatch({ type: 'SET_LOADING', payload: false });
     }
   };
 
@@ -149,7 +205,7 @@ export default function Home() {
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      if (showTopicInput) {
+      if (state.showTopicInput) {
         handleTopicSubmit();
       } else {
         handleSendMessage();
@@ -168,13 +224,10 @@ export default function Home() {
       });
   };
 
-  // Handle reset/start a new task
+  // Reset state and start new task
   const handleReset = () => {
     localStorage.removeItem('ptSessionId');
-    setSessionId("");
-    setMessages([]);
-    setPerformanceTask(null);
-    setShowTopicInput(true);
+    dispatch({ type: 'RESET_STATE' });
   };
   
   return (
@@ -188,7 +241,7 @@ export default function Home() {
                 Design authentic performance tasks for students step-by-step with AI assistance
               </CardDescription>
             </div>
-            {!showTopicInput && (
+            {!state.showTopicInput && (
               <Button variant="outline" size="sm" onClick={handleReset}>
                 New Task
               </Button>
@@ -197,49 +250,49 @@ export default function Home() {
         </CardHeader>
         
         <CardContent>
-          {showTopicInput ? (
+          {state.showTopicInput ? (
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium mb-1">
                   General Topic
                 </label>
                 <Input
-                  value={topic}
-                  onChange={(e) => setTopic(e.target.value)}
+                  value={state.topic}
+                  onChange={(e) => dispatch({ type: 'SET_TOPIC', payload: e.target.value })}
                   placeholder="Enter the general topic..."
                   className="w-full mb-4"
-                  disabled={isLoading}
+                  disabled={state.isLoading}
                 />
                 
                 <label className="block text-sm font-medium mb-1">
                   Unit Title
                 </label>
                 <Input
-                  value={unitTitle}
-                  onChange={(e) => setUnitTitle(e.target.value)}
+                  value={state.unitTitle}
+                  onChange={(e) => dispatch({ type: 'SET_UNIT_TITLE', payload: e.target.value })}
                   placeholder="Enter the specific unit title..."
                   className="w-full mb-4"
-                  disabled={isLoading}
+                  disabled={state.isLoading}
                 />
                 
                 <label className="block text-sm font-medium mb-1">
                   Grade Level
                 </label>
                 <Input
-                  value={gradeName}
-                  onChange={(e) => setGradeName(e.target.value)}
+                  value={state.gradeName}
+                  onChange={(e) => dispatch({ type: 'SET_GRADE_NAME', payload: e.target.value })}
                   onKeyDown={handleKeyDown}
                   placeholder="Enter the grade level..."
                   className="w-full mb-4"
-                  disabled={isLoading}
+                  disabled={state.isLoading}
                 />
                 
                 <Button 
                   onClick={handleTopicSubmit} 
-                  disabled={!topic.trim() || !unitTitle.trim() || !gradeName.trim() || isLoading}
+                  disabled={!state.topic.trim() || !state.unitTitle.trim() || !state.gradeName.trim() || state.isLoading}
                   className="w-full"
                 >
-                  {isLoading ? "Starting..." : "Create Performance Task"}
+                  {state.isLoading ? "Starting..." : "Create Performance Task"}
                 </Button>
                 
                 <p className="text-xs text-muted-foreground mt-1">
@@ -250,7 +303,7 @@ export default function Home() {
           ) : (
             <div className="space-y-4">
               <div className="h-[400px] overflow-y-auto border rounded-md p-4">
-                {messages.map((message, index) => (
+                {state.messages.map((message, index) => (
                   <div
                     key={index}
                     className={`mb-4 ${
@@ -271,7 +324,7 @@ export default function Home() {
                   </div>
                 ))}
                 <div ref={messagesEndRef} />
-                {isLoading && (
+                {state.isLoading && (
                   <div className="text-left mb-4">
                     <div className="inline-block p-3 rounded-lg bg-muted">
                       <div className="flex space-x-2">
@@ -288,20 +341,20 @@ export default function Home() {
         </CardContent>
         
         <CardFooter>
-          {!showTopicInput && (
+          {!state.showTopicInput && (
             <div className="flex gap-2 w-full">
               <Textarea
-                value={inputMessage}
-                onChange={(e) => setInputMessage(e.target.value)}
+                value={state.inputMessage}
+                onChange={(e) => dispatch({ type: 'SET_INPUT_MESSAGE', payload: e.target.value })}
                 onKeyDown={handleKeyDown}
                 placeholder="Type your message..."
                 className="flex-1 resize-none"
-                disabled={isLoading}
+                disabled={state.isLoading}
                 rows={2}
               />
               <Button 
                 onClick={handleSendMessage} 
-                disabled={!inputMessage.trim() || isLoading}
+                disabled={!state.inputMessage.trim() || state.isLoading}
               >
                 Send
               </Button>
@@ -311,12 +364,12 @@ export default function Home() {
       </Card>
 
       {/* Display performance task summary when available */}
-      {performanceTask && (
+      {state.performanceTask && (
         <div className="w-full max-w-3xl mx-auto mt-8">
           <PerformanceTaskSummary 
-            task={performanceTask} 
-            unitTitle={unitTitle}
-            gradeName={gradeName}
+            task={state.performanceTask} 
+            unitTitle={state.unitTitle}
+            gradeName={state.gradeName}
           />
         </div>
       )}
